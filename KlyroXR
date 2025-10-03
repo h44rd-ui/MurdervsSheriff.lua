@@ -1,0 +1,190 @@
+-- LocalScript: WindUI Key System + execução do loadstring ao validar
+-- Coloque este LocalScript em StarterGui
+
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+
+-- CONFIG
+local DISCORD_LINK = "https://discord.gg/qjkdGwA4U"
+local LOADSTRING_URL = "https://raw.githubusercontent.com/h44rd-ui/MurdervsSheriff.lua/refs/heads/main/obfuscated_script-Murdervsherifflua.txt"
+local JUNKIE_API_KEY = "SUA_API_KEY_AQUI" -- <== Coloque aqui sua API Key da Junkie
+
+-- Carrega WindUI
+local okWind, WindUI = pcall(function()
+    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+end)
+if not okWind or not WindUI then
+    warn("Falha ao carregar WindUI:", WindUI)
+    return
+end
+
+-- Carrega Junkie SDK
+local okJunkie, Junkie = pcall(function()
+    return loadstring(game:HttpGet("https://cdn.junkie-development.de/sdk/latest/sdk.lua"))()
+end)
+if not okJunkie or not Junkie then
+    warn("Falha ao carregar Junkie SDK:", Junkie)
+    return
+end
+local JD = Junkie.new(JUNKIE_API_KEY)
+
+-- Registra serviço customizado em WindUI.Services
+WindUI.Services = WindUI.Services or {}
+
+WindUI.Services.klyro_service = {
+    Name = "Klyro Key Service",
+    Icon = "key",
+    Args = { "ServiceId" },
+
+    New = function(ServiceId)
+        local function validateKey(key, callback)
+            -- Junkie SDK já retorna se a key é válida/expirada
+            JD:VerifyKey(key, function(success, message)
+                if callback then
+                    callback(success, message)
+                end
+            end)
+        end
+
+        local function copyLink()
+            local suc, err = pcall(function() setclipboard(DISCORD_LINK) end)
+            if not suc then return false, tostring(err) end
+            return true, "Link copiado!"
+        end
+
+        return {
+            Verify = validateKey,
+            Copy = copyLink,
+        }
+    end,
+}
+
+-- Cria janela WindUI e aba Key
+local Window = WindUI:CreateWindow({
+    Title = "KlyroX RC | Key System",
+    Icon = "square-function",
+    Author = "by Naosei",
+    Folder = "MVSD_Keysystem",
+    Theme = "Dark",
+    Size = UDim2.fromOffset(620, 260),
+    Resizable = false,
+    Transparent = true,
+})
+
+local KeyTab = Window:Tab({
+    Title = "Key",
+    Icon = "key",
+    Locked = false,
+})
+
+KeyTab:Section({ Title = "Insira sua Key para acessar o script" })
+
+local keyInput = KeyTab:Input({
+    Title = "Sua Key",
+    Desc = "Key System",
+    Type = "Input",
+    Placeholder = "Digite sua Key aqui",
+})
+
+local feedbackParagraph
+KeyTab:Paragraph({
+    Title = "Status",
+    Desc = "Aguardando validação...",
+    Callback = function(p) feedbackParagraph = p end,
+})
+
+-- Helper para pegar valor do input (compatível com variações do WindUI)
+local function getInputValue(inputObj)
+    if not inputObj then return "" end
+    if type(inputObj.GetValue) == "function" then
+        local ok, val = pcall(function() return inputObj:GetValue() end)
+        if ok and val and tostring(val) ~= "" then return tostring(val) end
+    end
+    if inputObj.__value and tostring(inputObj.__value) ~= "" then return tostring(inputObj.__value) end
+    if inputObj.Value and tostring(inputObj.Value) ~= "" then return tostring(inputObj.Value) end
+    local success, descendants = pcall(function() return inputObj:GetDescendants() end)
+    if success and descendants then
+        for _, d in ipairs(descendants) do
+            if d:IsA("TextBox") then return tostring(d.Text or "") end
+        end
+    end
+    return ""
+end
+
+-- Função que executa o loadstring (em pcall)
+local function executeRequestedLoadstring()
+    local suc, err = pcall(function()
+        local code = game:HttpGet(LOADSTRING_URL, true)
+        local fn = loadstring and loadstring(code) or load(code)
+        if type(fn) == "function" then
+            fn()
+        else
+            error("Loadstring não retornou função")
+        end
+    end)
+    return suc, err
+end
+
+-- Input Key button
+KeyTab:Button({
+    Title = "Input Key",
+    Desc = "Valida a key e carrega o script",
+    Callback = function()
+        local serviceFactory = WindUI.Services and WindUI.Services.klyro_service
+        if not serviceFactory or type(serviceFactory.New) ~= "function" then
+            if feedbackParagraph then feedbackParagraph:SetDesc("Serviço de Key indisponível.") end
+            return
+        end
+
+        local okNew, serviceInstance = pcall(function() return serviceFactory.New("klyroServiceId") end)
+        if not okNew or not serviceInstance then
+            if feedbackParagraph then feedbackParagraph:SetDesc("Falha ao inicializar serviço de Key.") end
+            return
+        end
+
+        local rawKey = getInputValue(keyInput) or ""
+        rawKey = tostring(rawKey):gsub("%s+", "")
+
+        -- Usando SDK da Junkie (assíncrono)
+        serviceInstance.Verify(rawKey, function(successFlag, statusMsg)
+            if feedbackParagraph then feedbackParagraph:SetDesc(statusMsg or "") end
+
+            if successFlag then
+                if feedbackParagraph then feedbackParagraph:SetDesc("Key aceita! Carregando script...") end
+                local sucLoad, errLoad = executeRequestedLoadstring()
+                if sucLoad then
+                    if feedbackParagraph then feedbackParagraph:SetDesc("Script carregado com sucesso!") end
+                    pcall(function() KeyTab:Destroy() end)
+                else
+                    if feedbackParagraph then feedbackParagraph:SetDesc("Erro ao carregar script: "..tostring(errLoad)) end
+                    warn("Erro executing loadstring:", errLoad)
+                end
+            end
+        end)
+    end,
+})
+
+-- Get Key button
+KeyTab:Button({
+    Title = "Get Key",
+    Desc = "Copia link do Discord para obter a Key",
+    Callback = function()
+        local serviceFactory = WindUI.Services and WindUI.Services.klyro_service
+        if not serviceFactory or type(serviceFactory.New) ~= "function" then
+            if feedbackParagraph then feedbackParagraph:SetDesc("Serviço de Key indisponível.") end
+            return
+        end
+        local okNew, inst = pcall(function() return serviceFactory.New("klyroServiceId") end)
+        if not okNew or not inst or type(inst.Copy) ~= "function" then
+            if feedbackParagraph then feedbackParagraph:SetDesc("Não foi possível inicializar função Copy.") end
+            return
+        end
+
+        local okCopy, res = pcall(function() return inst.Copy() end)
+        if okCopy then
+            if feedbackParagraph then feedbackParagraph:SetDesc(tostring(res) ~= "" and tostring(res) or "Link copiado!") end
+        else
+            if feedbackParagraph then feedbackParagraph:SetDesc("Falha ao copiar link: "..tostring(res)) end
+        end
+    end,
+})
